@@ -1,26 +1,17 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Tema claro e tipografia suave */
+:root { color-scheme: light; }
+html, body {
+  background: #f8fafc; /* slate-50 */
+  color: #0b0f19;      /* cinza-900 limpo */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+/* Utilidades mínimas para títulos e seções */
+.h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
+.h2 { font-size: 1.125rem; font-weight: 600; }
+.section { @apply rounded-2xl border bg-white p-4 md:p-5; }
+.card { @apply rounded-2xl border bg-white p-4 hover:shadow-sm transition; }
+.muted { color: #6b7280; } /* gray-500 */
