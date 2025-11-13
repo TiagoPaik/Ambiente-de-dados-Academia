@@ -9,35 +9,50 @@ type TipoMatricula = 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
 
 type AlunoRow = {
   id_aluno: number;
+  id_professor: number | null;
   nome: string;
   cpf: string;
   email: string;
   senha: string;
   status: StatusAluno;
   tipo_matricula: TipoMatricula;
+  nome_professor?: string | null;
 };
 
-// GET - listar alunos
+// =========================================================
+// GET - listar alunos (com professor)
+// =========================================================
 export async function GET(req: NextRequest) {
   try {
     const q = req.nextUrl.searchParams.get('q')?.trim();
 
     let sql = `
-      SELECT id_aluno, nome, cpf, email, senha, status, tipo_matricula
-      FROM Aluno
+      SELECT 
+        a.id_aluno,
+        a.id_professor,
+        a.nome,
+        a.cpf,
+        a.email,
+        a.senha,
+        a.status,
+        a.tipo_matricula,
+        p.nome AS nome_professor
+      FROM Aluno a
+      LEFT JOIN Professor p ON p.id_professor = a.id_professor
     `;
+
     const params: any = {};
 
     if (q) {
       sql += `
-        WHERE nome  LIKE :q
-           OR email LIKE :q
-           OR cpf   LIKE :q
+        WHERE a.nome  LIKE :q
+           OR a.email LIKE :q
+           OR a.cpf   LIKE :q
       `;
       params.q = `%${q}%`;
     }
 
-    sql += ` ORDER BY id_aluno DESC`;
+    sql += ` ORDER BY a.id_aluno DESC`;
 
     const list = await query<AlunoRow>(sql, params);
 
@@ -53,7 +68,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// =========================================================
 // POST - criar aluno
+// =========================================================
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -62,9 +79,18 @@ export async function POST(req: NextRequest) {
       cpf,
       email,
       senha,
-      status = 'Ativo',
+      status = 'Inativo',         // 🔹 padrão INATIVO
       tipo_matricula = 'Mensal',
-    } = body;
+      id_professor,
+    } = body as {
+      nome?: string;
+      cpf?: string;
+      email?: string;
+      senha?: string;
+      status?: StatusAluno;
+      tipo_matricula?: TipoMatricula;
+      id_professor?: number | null;
+    };
 
     if (!nome || !cpf || !email || !senha) {
       return NextResponse.json(
@@ -73,20 +99,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const tiposValidos = ['Mensal', 'Trimestral', 'Semestral', 'Anual'];
-    const tipo = tiposValidos.includes(tipo_matricula)
+    const tiposValidos: TipoMatricula[] = [
+      'Mensal',
+      'Trimestral',
+      'Semestral',
+      'Anual',
+    ];
+    const tipo: TipoMatricula = tiposValidos.includes(tipo_matricula)
       ? tipo_matricula
       : 'Mensal';
 
     const created = await tx(async (conn) => {
+      // Se não veio id_professor, pega o primeiro professor ATIVO
+      let professorId = id_professor ?? null;
+
+      if (professorId == null) {
+        const [rowsProf] = await conn.query(
+          `
+          SELECT id_professor
+          FROM Professor
+          WHERE status = 'Ativo'
+          ORDER BY id_professor ASC
+          LIMIT 1
+          `
+        );
+        const prof = (rowsProf as any[])[0];
+        if (!prof) {
+          throw new Error(
+            'Nenhum professor ativo encontrado para vincular ao aluno.'
+          );
+        }
+        professorId = prof.id_professor as number;
+      }
+
       const [r] = await conn.execute(
         `
         INSERT INTO Aluno
           (id_professor, nome, cpf, email, senha, status, tipo_matricula, data_pagamento)
         VALUES
           (
-            -- professor padrão: primeiro ATIVO
-            (SELECT id_professor FROM Professor WHERE status = 'Ativo' ORDER BY id_professor ASC LIMIT 1),
+            :id_professor,
             :nome,
             :cpf,
             :email,
@@ -96,16 +148,33 @@ export async function POST(req: NextRequest) {
             CURDATE()
           )
         `,
-        { nome, cpf, email, senha, status, tipo_matricula: tipo }
+        {
+          id_professor: professorId,
+          nome,
+          cpf,
+          email,
+          senha,
+          status,
+          tipo_matricula: tipo,
+        }
       );
       // @ts-ignore
       const insertId = r.insertId as number;
 
       const [rows] = await conn.query(
         `
-        SELECT id_aluno, nome, cpf, email, status, tipo_matricula
-        FROM Aluno
-        WHERE id_aluno = ?
+        SELECT 
+          a.id_aluno,
+          a.id_professor,
+          a.nome,
+          a.cpf,
+          a.email,
+          a.status,
+          a.tipo_matricula,
+          p.nome AS nome_professor
+        FROM Aluno a
+        LEFT JOIN Professor p ON p.id_professor = a.id_professor
+        WHERE a.id_aluno = ?
         `,
         [insertId]
       );
@@ -127,13 +196,15 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Erro ao criar aluno' },
+      { error: e.message || 'Erro ao criar aluno' },
       { status: 500 }
     );
   }
 }
 
+// =========================================================
 // PUT - atualizar aluno
+// =========================================================
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -145,7 +216,17 @@ export async function PUT(req: NextRequest) {
       senha,
       status,
       tipo_matricula,
-    } = body;
+      id_professor,
+    } = body as {
+      id_aluno?: number;
+      nome?: string;
+      cpf?: string;
+      email?: string;
+      senha?: string;
+      status?: StatusAluno;
+      tipo_matricula?: TipoMatricula;
+      id_professor?: number | null;
+    };
 
     const id = Number(id_aluno);
     if (!id || Number.isNaN(id)) {
@@ -155,46 +236,75 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const tiposValidos = ['Mensal', 'Trimestral', 'Semestral', 'Anual'];
-    const tipo = tiposValidos.includes(tipo_matricula)
+    const tiposValidos: TipoMatricula[] = [
+      'Mensal',
+      'Trimestral',
+      'Semestral',
+      'Anual',
+    ];
+    const tipo: TipoMatricula = tipo_matricula && tiposValidos.includes(tipo_matricula)
       ? tipo_matricula
       : 'Mensal';
 
     const updated = await tx(async (conn) => {
+      // Monta os parâmetros base
+      const paramsBase: any = {
+        id,
+        nome,
+        cpf,
+        email,
+        status,
+        tipo_matricula: tipo,
+      };
+
+      // Atualiza com ou sem senha, mas sempre permite atualizar id_professor (se vier)
       if (senha) {
         await conn.execute(
           `
           UPDATE Aluno
-          SET nome = :nome,
-              cpf  = :cpf,
-              email = :email,
-              senha = :senha,
-              status = :status,
-              tipo_matricula = :tipo_matricula
+          SET 
+            nome = :nome,
+            cpf  = :cpf,
+            email = :email,
+            senha = :senha,
+            status = :status,
+            tipo_matricula = :tipo_matricula,
+            id_professor = COALESCE(:id_professor, id_professor)
           WHERE id_aluno = :id
           `,
-          { id, nome, cpf, email, senha, status, tipo_matricula: tipo }
+          { ...paramsBase, senha, id_professor }
         );
       } else {
         await conn.execute(
           `
           UPDATE Aluno
-          SET nome = :nome,
-              cpf  = :cpf,
-              email = :email,
-              status = :status,
-              tipo_matricula = :tipo_matricula
+          SET 
+            nome = :nome,
+            cpf  = :cpf,
+            email = :email,
+            status = :status,
+            tipo_matricula = :tipo_matricula,
+            id_professor = COALESCE(:id_professor, id_professor)
           WHERE id_aluno = :id
           `,
-          { id, nome, cpf, email, status, tipo_matricula: tipo }
+          { ...paramsBase, id_professor }
         );
       }
 
       const [rows] = await conn.query(
         `
-        SELECT id_aluno, nome, cpf, email, status, tipo_matricula
-        FROM Aluno
-        WHERE id_aluno = ?
+        SELECT 
+          a.id_aluno,
+          a.id_professor,
+          a.nome,
+          a.cpf,
+          a.email,
+          a.status,
+          a.tipo_matricula,
+          p.nome AS nome_professor
+        FROM Aluno a
+        LEFT JOIN Professor p ON p.id_professor = a.id_professor
+        WHERE a.id_aluno = ?
         `,
         [id]
       );
@@ -215,13 +325,15 @@ export async function PUT(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: 'Erro ao atualizar aluno' },
+      { error: e.message || 'Erro ao atualizar aluno' },
       { status: 500 }
     );
   }
 }
 
+// =========================================================
 // DELETE - remover aluno
+// =========================================================
 export async function DELETE(req: NextRequest) {
   try {
     const idParam = req.nextUrl.searchParams.get('id');

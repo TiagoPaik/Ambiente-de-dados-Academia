@@ -1,10 +1,10 @@
 // app/api/exercicios/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { query, tx } from '@/lib/db';
 
 export async function GET() {
   try {
-    const [rows] = await db.query(
+    const [rows] = await query(
       'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio ORDER BY id_exercicio ASC'
     );
     return NextResponse.json(rows);
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'nome é obrigatório' }, { status: 400 });
     }
 
-    const [result] = await db.query(
+    const [result] = await query(
       `INSERT INTO Exercicio (nome, descricao, grupo_muscular, equipamento)
        VALUES (?, ?, ?, ?)`,
       [
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     // @ts-ignore - tipos do mysql2 variam, mas insertId existe
     const insertedId = result.insertId as number;
 
-    const [novo] = await db.query(
+    const [novo] = await query(
       'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio WHERE id_exercicio = ?',
       [insertedId]
     );
