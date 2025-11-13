@@ -1,25 +1,48 @@
-// app/api/admin/stats/route.ts
-import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+// src/app/api/admin/stats/route.ts
+import { NextResponse } from 'next/server';
+import { query } from '@/lib/db';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+type CountRow = { total: number };
 
 export async function GET() {
   try {
-    const [alunos, instrutores, treinos] = await Promise.all([
-      prisma.aluno.count(),
-      prisma.professor.count(),
-      prisma.treino.count(),
-    ])
+    // Conta alunos
+    const alunosRows = await query<CountRow>(
+      'SELECT COUNT(*) AS total FROM Aluno'
+    );
+    const alunos = alunosRows[0]?.total ?? 0;
 
-    // Não existe tabela Aula no schema atual, então devolvo 0.
-    const aulasHoje = 0
+    // Conta instrutores (professores)
+    const instrutoresRows = await query<CountRow>(
+      'SELECT COUNT(*) AS total FROM Professor'
+    );
+    const instrutores = instrutoresRows[0]?.total ?? 0;
 
-    return NextResponse.json({
+    // Conta treinos
+    const treinosRows = await query<CountRow>(
+      'SELECT COUNT(*) AS total FROM Treino'
+    );
+    const treinos = treinosRows[0]?.total ?? 0;
+
+    // Se não tiver tabela de Aulas ainda, deixa 0
+    const aulasHoje = 0;
+
+    const result = {
       alunos,
       instrutores,
       treinos,
       aulasHoje,
-    })
+    };
+
+    return NextResponse.json(result);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    console.error('Erro em /api/admin/stats:', e);
+    return NextResponse.json(
+      { error: 'Erro ao carregar estatísticas' },
+      { status: 500 }
+    );
   }
 }

@@ -47,13 +47,18 @@ export default function Shell({ children, title }: { children: ReactNode; title?
           <span className="font-semibold">Academia Crescimento O(1)</span>
         </div>
           {user && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm muted">{user.name} • {user.role}</span>
-              <button onClick={logout} className="px-3 py-1.5 rounded-lg border hover:bg-gray-50 text-sm">
-                Sair
-              </button>
-            </div>
-          )}
+              <div className="flex items-center gap-3">
+                <span className="text-sm muted">
+                  {user.nome} • {user.role}
+                </span>
+                <button
+                  onClick={logout}
+                  className="px-3 py-1.5 rounded-lg border hover:bg-gray-50 text-sm"
+                >
+                  Sair
+                </button>
+              </div>
+            )}
         </div>
       </header>
 

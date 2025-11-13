@@ -1,11 +1,15 @@
+// app/api/exercicios/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const itens = await prisma.exercicio.findMany({ orderBy: { id_exercicio: 'asc' } });
-    return NextResponse.json(itens);
+    const [rows] = await db.query(
+      'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio ORDER BY id_exercicio ASC'
+    );
+    return NextResponse.json(rows);
   } catch (e: any) {
+    console.error(e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
@@ -13,12 +17,33 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const { nome, descricao, grupo_muscular, equipamento } = await req.json();
-    if (!nome) return NextResponse.json({ error: 'nome é obrigatório' }, { status: 400 });
-    const it = await prisma.exercicio.create({
-      data: { nome, descricao: descricao ?? null, grupo_muscular: grupo_muscular ?? null, equipamento: equipamento ?? null },
-    });
-    return NextResponse.json(it, { status: 201 });
+    if (!nome || !nome.trim()) {
+      return NextResponse.json({ error: 'nome é obrigatório' }, { status: 400 });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO Exercicio (nome, descricao, grupo_muscular, equipamento)
+       VALUES (?, ?, ?, ?)`,
+      [
+        nome.trim(),
+        descricao ?? null,
+        grupo_muscular ?? null,
+        equipamento ?? null,
+      ]
+    );
+
+    // Pega o ID inserido
+    // @ts-ignore - tipos do mysql2 variam, mas insertId existe
+    const insertedId = result.insertId as number;
+
+    const [novo] = await db.query(
+      'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio WHERE id_exercicio = ?',
+      [insertedId]
+    );
+
+    return NextResponse.json(novo, { status: 201 });
   } catch (e: any) {
+    console.error(e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
