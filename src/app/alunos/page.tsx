@@ -15,7 +15,6 @@ type Aluno = {
   nome: string;
   cpf: string;
   email: string;
-  senha?: string;
   status: StatusAluno;
   tipo_matricula: TipoMatricula;
   nome_professor?: string | null;
@@ -27,6 +26,16 @@ type Professor = {
   email: string;
 };
 
+type AlunoForm = {
+  nome: string;
+  cpf: string;
+  email: string;
+  senha: string;
+  status: StatusAluno;
+  tipo_matricula: TipoMatricula;
+  id_professor: number | null;
+};
+
 export default function AlunosPage() {
   const [list, setList] = useState<Aluno[]>([]);
   const [professores, setProfessores] = useState<Professor[]>([]);
@@ -34,38 +43,29 @@ export default function AlunosPage() {
   const [loading, setLoading] = useState(true);
   const [loadingProf, setLoadingProf] = useState(true);
 
-  const [form, setForm] = useState<Partial<Aluno> & { id_professor?: number | '' }>({
+  const [form, setForm] = useState<AlunoForm>({
     nome: '',
     cpf: '',
     email: '',
     senha: '',
-    status: 'Ativo',        
+    status: 'Ativo',         
     tipo_matricula: 'Mensal',
-    id_professor: '',
+    id_professor: null,       
   });
 
   const [editing, setEditing] = useState<Aluno | null>(null);
 
   const canSave = useMemo(() => {
-    const hasBasic =
-      !!form.nome &&
-      !!form.cpf &&
-      !!form.email &&
-      (form.status === 'Ativo' || form.status === 'Inativo') &&
-      !!form.tipo_matricula;
-
-    if (!hasBasic) return false;
-
-    // Se existir professor cadastrado, exige professor selecionado
-    if (professores.length > 0 && !form.id_professor) return false;
-
-    if (editing) {
-      // editando: senha é opcional
-      return true;
-    }
-    // criando: senha obrigatória
-    return !!form.senha;
-  }, [form, editing, professores.length]);
+    if (!form.nome.trim()) return false;
+    if (!form.cpf.trim()) return false;
+    if (!form.email.trim()) return false;
+    if (!form.status) return false;
+    if (!form.tipo_matricula) return false;
+    // Criando: senha obrigatória
+    if (!editing && !form.senha.trim()) return false;
+    // Editando: senha opcional
+    return true;
+  }, [form, editing]);
 
   async function fetchAlunos(query?: string) {
     try {
@@ -86,14 +86,14 @@ export default function AlunosPage() {
       setLoadingProf(true);
       const res = await fetch('/api/professores');
       const data = await res.json();
-      const lista = Array.isArray(data) ? data : [];
+      const lista: Professor[] = Array.isArray(data) ? data : [];
       setProfessores(lista);
 
-      // se não está editando e não tem professor setado, define o primeiro como padrão
+      // Se não está editando e não tem professor setado, define o primeiro como padrão
       if (!editing && lista.length > 0) {
         setForm((f) => ({
           ...f,
-          id_professor: f.id_professor || lista[0].id_professor,
+          id_professor: f.id_professor ?? lista[0].id_professor,
         }));
       }
     } finally {
@@ -106,7 +106,7 @@ export default function AlunosPage() {
     fetchProfessores();
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSave) return;
 
@@ -118,17 +118,18 @@ export default function AlunosPage() {
           email: form.email,
           status: form.status,
           tipo_matricula: form.tipo_matricula,
-          id_professor: form.id_professor || undefined,
-          ...(form.senha ? { senha: form.senha } : {}),
+          id_professor: form.id_professor,           // pode ser null
+          // senha só se preenchida
+          ...(form.senha.trim() ? { senha: form.senha.trim() } : {}),
         }
       : {
           nome: form.nome,
           cpf: form.cpf,
           email: form.email,
-          senha: form.senha,
-          status: form.status ?? 'Inativo', // 🔹 padrão INATIVO
-          tipo_matricula: form.tipo_matricula ?? 'Mensal',
-          id_professor: form.id_professor || undefined,
+          senha: form.senha.trim(),
+          status: form.status,                      // padrão Inativo já está aqui
+          tipo_matricula: form.tipo_matricula,
+          id_professor: form.id_professor,          // pode ser null (API escolhe padrão)
         };
 
     const res = await fetch('/api/alunos', {
@@ -143,6 +144,8 @@ export default function AlunosPage() {
       return;
     }
 
+    // Reseta o formulário
+    setEditing(null);
     setForm({
       nome: '',
       cpf: '',
@@ -150,9 +153,9 @@ export default function AlunosPage() {
       senha: '',
       status: 'Inativo',
       tipo_matricula: 'Mensal',
-      id_professor: professores[0]?.id_professor ?? '',
+      id_professor: professores[0]?.id_professor ?? null,
     });
-    setEditing(null);
+
     fetchAlunos(q);
   }
 
@@ -165,7 +168,7 @@ export default function AlunosPage() {
       senha: '',
       status: a.status,
       tipo_matricula: a.tipo_matricula,
-      id_professor: a.id_professor ?? '',
+      id_professor: a.id_professor, // pode vir null
     });
   }
 
@@ -189,7 +192,7 @@ export default function AlunosPage() {
       senha: '',
       status: 'Inativo',
       tipo_matricula: 'Mensal',
-      id_professor: professores[0]?.id_professor ?? '',
+      id_professor: professores[0]?.id_professor ?? null,
     });
   }
 
@@ -224,7 +227,7 @@ export default function AlunosPage() {
         <section className="mt-6 grid gap-6 lg:grid-cols-3">
           {/* Formulário */}
           <form
-            onSubmit={handleCreate}
+            onSubmit={handleSubmit}
             className="section space-y-4 lg:col-span-1"
           >
             <h2 className="h2">
@@ -234,7 +237,7 @@ export default function AlunosPage() {
             <div>
               <label className="block text-sm font-medium">Nome</label>
               <Input
-                value={form.nome || ''}
+                value={form.nome}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, nome: e.target.value }))
                 }
@@ -245,7 +248,7 @@ export default function AlunosPage() {
               <div>
                 <label className="block text-sm font-medium">CPF</label>
                 <Input
-                  value={form.cpf || ''}
+                  value={form.cpf}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, cpf: e.target.value }))
                   }
@@ -255,7 +258,7 @@ export default function AlunosPage() {
                 <label className="block text-sm font-medium">Email</label>
                 <Input
                   type="email"
-                  value={form.email || ''}
+                  value={form.email}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, email: e.target.value }))
                   }
@@ -268,7 +271,7 @@ export default function AlunosPage() {
                 <label className="block text-sm font-medium">Senha</label>
                 <Input
                   type="password"
-                  value={form.senha || ''}
+                  value={form.senha}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, senha: e.target.value }))
                   }
@@ -283,7 +286,7 @@ export default function AlunosPage() {
                 </label>
                 <Input
                   type="password"
-                  value={form.senha || ''}
+                  value={form.senha}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, senha: e.target.value }))
                   }
@@ -307,14 +310,13 @@ export default function AlunosPage() {
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:ring-2 focus:ring-blue-600 mt-1"
                   value={form.id_professor ?? ''}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const value = e.target.value;
                     setForm((f) => ({
                       ...f,
-                      id_professor: e.target.value
-                        ? Number(e.target.value)
-                        : '',
-                    }))
-                  }
+                      id_professor: value ? Number(value) : null,
+                    }));
+                  }}
                 >
                   {professores.map((p) => (
                     <option key={p.id_professor} value={p.id_professor}>
@@ -330,7 +332,7 @@ export default function AlunosPage() {
                 <label className="block text-sm font-medium">Status</label>
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:ring-2 focus:ring-blue-600"
-                  value={form.status || 'Inativo'}
+                  value={form.status}
                   onChange={(e) =>
                     setForm((f) => ({
                       ...f,
@@ -348,7 +350,7 @@ export default function AlunosPage() {
                 </label>
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white focus:ring-2 focus:ring-blue-600"
-                  value={form.tipo_matricula || 'Mensal'}
+                  value={form.tipo_matricula}
                   onChange={(e) =>
                     setForm((f) => ({
                       ...f,
@@ -433,8 +435,7 @@ export default function AlunosPage() {
                         <td className="py-2 pr-4">{a.cpf}</td>
                         <td className="py-2 pr-4">{a.status}</td>
                         <td className="py-2 pr-4">{a.tipo_matricula}</td>
-                        <td className="py-2 pr-4">
-                          {a.nome_professor || '(sem professor)'}
+                        <td className="py-2 pr-4">{a.nome_professor}
                         </td>
                         <td className="py-2">
                           <div className="flex gap-2 justify-end">
