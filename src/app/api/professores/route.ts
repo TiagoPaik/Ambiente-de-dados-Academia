@@ -96,7 +96,21 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id_professor, nome, cpf, email, senha, status } = body;
+    const {
+      id_professor,
+      nome,
+      cpf,
+      email,
+      status,
+      senha,
+    } = body as {
+      id_professor?: number;
+      nome?: string;
+      cpf?: string;
+      email?: string;
+      status?: 'Ativo' | 'Inativo';
+      senha?: string | null;
+    };
 
     const id = Number(id_professor);
     if (!id || Number.isNaN(id)) {
@@ -106,42 +120,80 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const result = await tx(async (conn) => {
-      await conn.execute(
-        `
-        UPDATE Professor
-        SET nome = :nome,
-            cpf = :cpf,
-            email = :email,
-            senha = :senha,
-            status = :status
-        WHERE id_professor = :id
-        `,
-        { id, nome, cpf, email, senha, status }
-      );
-
-      const [rows] = await conn.query(
-        `SELECT * FROM Professor WHERE id_professor = ?`,
-        [id]
-      );
-
-      return (rows as any[])[0];
-    });
-
-    return NextResponse.json(result);
-  } catch (e: any) {
-    if (String(e.message).includes('Duplicate')) {
-      let campo = 'Campo';
-      if (e.message.includes('cpf')) campo = 'CPF';
-      if (e.message.includes('email')) campo = 'E-mail';
-
+    if (!nome || !cpf || !email || !status) {
       return NextResponse.json(
-        { error: `${campo} já cadastrado` },
-        { status: 409 }
+        { error: 'Nome, CPF, e-mail e status são obrigatórios' },
+        { status: 400 }
       );
     }
 
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    // Se senha vier preenchida → atualiza tudo (incluindo senha)
+    if (senha && senha.trim()) {
+      await query(
+        `
+        UPDATE Professor
+        SET
+          nome = :nome,
+          cpf = :cpf,
+          email = :email,
+          senha = :senha,
+          status = :status
+        WHERE id_professor = :id_professor
+        `,
+        {
+          id_professor: id,
+          nome: nome.trim(),
+          cpf: cpf.trim(),
+          email: email.trim(),
+          senha: senha.trim(),
+          status,
+        }
+      );
+    } else {
+      // Senha não enviada ou vazia → não mexe na senha
+      await query(
+        `
+        UPDATE Professor
+        SET
+          nome = :nome,
+          cpf = :cpf,
+          email = :email,
+          status = :status
+        WHERE id_professor = :id_professor
+        `,
+        {
+          id_professor: id,
+          nome: nome.trim(),
+          cpf: cpf.trim(),
+          email: email.trim(),
+          status,
+        }
+      );
+    }
+
+    // Retorna o registro atualizado
+    const updated = await query<{
+      id_professor: number;
+      nome: string;
+      cpf: string;
+      email: string;
+      status: 'Ativo' | 'Inativo';
+    }>(
+      `
+      SELECT id_professor, nome, cpf, email, status
+      FROM Professor
+      WHERE id_professor = :id_professor
+      `,
+      { id_professor: id }
+    );
+
+    return NextResponse.json(updated[0] ?? null);
+  } catch (e: any) {
+    console.error('Erro PUT /api/professores:', e);
+    return NextResponse.json(
+      { error: 'Erro ao atualizar professor' },
+      { status: 500 }
+    );
   }
 }
 

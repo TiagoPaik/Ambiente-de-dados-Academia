@@ -8,7 +8,6 @@ type Stats = {
   alunos: number
   instrutores: number
   treinos: number
-  aulasHoje: number
 }
 
 export default function AdminDashboard() {
@@ -24,7 +23,7 @@ export default function AdminDashboard() {
       else throw new Error(data?.error || 'Falha ao carregar estatísticas')
     } catch (e) {
       console.error(e)
-      setStats({ alunos: 0, instrutores: 0, treinos: 0, aulasHoje: 0 })
+      setStats({ alunos: 0, instrutores: 0, treinos: 0})
     } finally {
       setLoading(false)
     }
@@ -38,7 +37,6 @@ export default function AdminDashboard() {
     { label: 'Total de Alunos', value: stats?.alunos ?? '—' },
     { label: 'Instrutores',     value: stats?.instrutores ?? '—' },
     { label: 'Treinos',         value: stats?.treinos ?? '—' },
-    { label: 'Aulas Hoje',      value: stats?.aulasHoje ?? '—' },
   ]
 
   return (
@@ -61,7 +59,7 @@ export default function AdminDashboard() {
             <div className="flex gap-2">
               <Link href="/alunos" className="px-3 py-2 rounded-lg border hover:bg-gray-50 text-sm">Novo Aluno</Link>
               <Link href="/instrutores" className="px-3 py-2 rounded-lg border hover:bg-gray-50 text-sm">Novo Instrutor</Link>
-              <Link href="/treinos" className="px-3 py-2 rounded-lg border hover:bg-gray-50 text-sm">Criar Aula</Link>
+              <Link href="/treinos" className="px-3 py-2 rounded-lg border hover:bg-gray-50 text-sm">Criar Treino</Link>
             </div>
           </div>
           <div className="mt-3">

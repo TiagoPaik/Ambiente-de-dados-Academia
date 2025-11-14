@@ -5,3 +5,13 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+module.exports = {
+  images: {
+    domains: [
+      'treinomestre.com.br',
+      'trainomestre.com.br',
+      'wp-content.treinomestre.com.br'
+    ],
+  },
+};

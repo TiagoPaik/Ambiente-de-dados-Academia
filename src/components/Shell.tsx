@@ -13,23 +13,36 @@ export default function Shell({ children, title }: { children: ReactNode; title?
   const { user, logout } = useAuth();
 
   const items: Item[] = useMemo(() => {
-    if (user?.role === "ADMIN") {
-      return [
+  if (!user) return [];
+
+  if (user.role === "ADMIN") {
+    return [
         { href: "/admin", label: "Dashboard" },
         { href: "/alunos", label: "Alunos" },
         { href: "/instrutores", label: "Instrutores" },
         { href: "/treinos", label: "Treinos" },
-        { href: "/aulas", label: "Aulas" },
         { href: "/relatorios", label: "Relatórios" },
-      ];
-    }
+    ];
+  }
+
+  if (user.role === "INSTRUTOR") {
     return [
       { href: "/instrutor", label: "Dashboard" },
       { href: "/meus-alunos", label: "Meus Alunos" },
       { href: "/meus-treinos", label: "Meus Treinos" },
       { href: "/frequencia", label: "Frequência" },
     ];
-  }, [user?.role]);
+  }
+
+  // ALUNO: só uma rota simples, sem menu complexo
+  if (user.role === "ALUNO") {
+    return [
+      { href: "/aluno", label: "Treinos & Frequência" },
+    ];
+  }
+
+  return [];
+}, [user?.role]);
 
   return (
     <div className="min-h-screen">

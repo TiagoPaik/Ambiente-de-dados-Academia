@@ -1,49 +1,37 @@
-// app/api/exercicios/route.ts
+// src/app/api/exercicios/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { query, tx } from '@/lib/db';
+import { query } from '@/lib/db';
 
-export async function GET() {
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+type ExercicioRow = {
+  id_exercicio: number;
+  nome: string;
+  grupo_muscular: string | null;
+  imagem: string | null;
+};
+
+export async function GET(req: NextRequest) {
   try {
-    const [rows] = await query(
-      'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio ORDER BY id_exercicio ASC'
+    const lista = await query<ExercicioRow>(
+      `
+      SELECT
+        id_exercicio,
+        nome,
+        grupo_muscular,
+        imagem
+      FROM Exercicio
+      ORDER BY nome ASC
+      `
     );
-    return NextResponse.json(rows);
+
+    return NextResponse.json(lista);
   } catch (e: any) {
-    console.error(e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const { nome, descricao, grupo_muscular, equipamento } = await req.json();
-    if (!nome || !nome.trim()) {
-      return NextResponse.json({ error: 'nome é obrigatório' }, { status: 400 });
-    }
-
-    const [result] = await query(
-      `INSERT INTO Exercicio (nome, descricao, grupo_muscular, equipamento)
-       VALUES (?, ?, ?, ?)`,
-      [
-        nome.trim(),
-        descricao ?? null,
-        grupo_muscular ?? null,
-        equipamento ?? null,
-      ]
+    console.error('Erro GET /api/exercicios:', e);
+    return NextResponse.json(
+      { error: 'Erro ao listar exercícios do catálogo' },
+      { status: 500 }
     );
-
-    // Pega o ID inserido
-    // @ts-ignore - tipos do mysql2 variam, mas insertId existe
-    const insertedId = result.insertId as number;
-
-    const [novo] = await query(
-      'SELECT id_exercicio, nome, descricao, grupo_muscular, equipamento FROM Exercicio WHERE id_exercicio = ?',
-      [insertedId]
-    );
-
-    return NextResponse.json(novo, { status: 201 });
-  } catch (e: any) {
-    console.error(e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
