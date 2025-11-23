@@ -1,7 +1,7 @@
 // src/app/(public)/cadastro/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -22,20 +22,25 @@ export default function CadastroAlunoPage() {
   const [erro, setErro] = useState('');
   const [success, setSuccess] = useState('');
   const [loadingSubmit, setLoadingSubmit] = useState(false);
+  const [formErrors, setFormErrors] = useState<Partial<Record<'nome'|'cpf'|'email'|'senha', string>>>({});
+  const nomeRef = useRef<HTMLInputElement | null>(null);
+  const cpfRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const senhaRef = useRef<HTMLInputElement | null>(null);
 
   function limparMensagens() {
     setErro('');
     setSuccess('');
+    setFormErrors({});
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     limparMensagens();
 
-    if (!nome.trim() || !cpf.trim() || !email.trim() || !senha.trim()) {
-      setErro('Preencha todos os campos obrigatórios.');
-      return;
-    }
+    // validação cliente
+    const valid = validateForm();
+    if (!valid) return;
 
     setLoadingSubmit(true);
     try {
@@ -51,10 +56,29 @@ export default function CadastroAlunoPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
-        setErro(data.error || 'Falha ao cadastrar aluno');
+        const msg = data?.error ?? 'Falha ao cadastrar aluno';
+        if (res.status === 409) {
+          if (/cpf/i.test(msg)) {
+            setFormErrors({ cpf: msg });
+            cpfRef.current?.focus();
+          } else if (/e-?mail/i.test(msg)) {
+            setFormErrors({ email: msg });
+            emailRef.current?.focus();
+          } else {
+            setErro(msg);
+          }
+          return;
+        }
+
+        setErro(msg);
         return;
       }
 
@@ -68,6 +92,64 @@ export default function CadastroAlunoPage() {
     } finally {
       setLoadingSubmit(false);
     }
+  }
+
+  function validateForm() {
+    const errors: Partial<Record<'nome'|'cpf'|'email'|'senha', string>> = {};
+    const nomeTrim = nome.trim();
+    const cpfTrim = cpf.trim();
+    const emailTrim = email.trim();
+    const senhaVal = senha;
+
+    if (!nomeTrim) {
+      errors.nome = 'Nome é obrigatório';
+    } else if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(nomeTrim)) {
+      errors.nome = 'Nome inválido: deve conter letras';
+    }
+
+    const cpfDigits = cpfTrim.replace(/\D/g, '');
+    if (!cpfDigits) {
+      errors.cpf = 'CPF é obrigatório';
+    } else if (!/^\d+$/.test(cpfDigits)) {
+      errors.cpf = 'CPF inválido: somente números';
+    } else if (cpfDigits.length !== 11) {
+      errors.cpf = 'CPF deve conter 11 dígitos';
+    }
+
+    if (!emailTrim) {
+      errors.email = 'E-mail é obrigatório';
+    } else if (!/^\S+@\S+\.\S+$/.test(emailTrim)) {
+      errors.email = 'E-mail inválido';
+    }
+
+    if (!senhaVal || senhaVal.trim().length < 8) {
+      errors.senha = 'Senha deve ter no mínimo 8 caracteres';
+    }
+
+    setFormErrors(errors);
+
+    if (errors.nome) {
+      setErro('Corrija os erros do formulário');
+      nomeRef.current?.focus();
+      return false;
+    }
+    if (errors.cpf) {
+      setErro('Corrija os erros do formulário');
+      cpfRef.current?.focus();
+      return false;
+    }
+    if (errors.email) {
+      setErro('Corrija os erros do formulário');
+      emailRef.current?.focus();
+      return false;
+    }
+    if (errors.senha) {
+      setErro('Corrija os erros do formulário');
+      senhaRef.current?.focus();
+      return false;
+    }
+
+    return Object.keys(errors).length === 0;
   }
 
   return (
@@ -84,7 +166,11 @@ export default function CadastroAlunoPage() {
             placeholder="Seu nome"
             value={nome}
             onChange={(e) => setNome(e.target.value)}
+            ref={nomeRef}
           />
+          {formErrors.nome && (
+            <div className="text-sm text-red-600 mt-1">{formErrors.nome}</div>
+          )}
         </div>
 
         <div>
@@ -93,7 +179,11 @@ export default function CadastroAlunoPage() {
             placeholder="Somente números"
             value={cpf}
             onChange={(e) => setCpf(e.target.value)}
+            ref={cpfRef}
           />
+          {formErrors.cpf && (
+            <div className="text-sm text-red-600 mt-1">{formErrors.cpf}</div>
+          )}
         </div>
 
         <div>
@@ -102,7 +192,11 @@ export default function CadastroAlunoPage() {
             placeholder="voce@exemplo.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            ref={emailRef}
           />
+          {formErrors.email && (
+            <div className="text-sm text-red-600 mt-1">{formErrors.email}</div>
+          )}
         </div>
 
         <div>
@@ -112,7 +206,12 @@ export default function CadastroAlunoPage() {
             placeholder="••••••••"
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
+            ref={senhaRef}
           />
+          <div className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres.</div>
+          {formErrors.senha && (
+            <div className="text-sm text-red-600 mt-1">{formErrors.senha}</div>
+          )}
         </div>
 
         <div>

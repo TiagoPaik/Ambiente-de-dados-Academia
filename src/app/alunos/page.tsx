@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import Protected from '@/components/Protected';
 import Shell from '@/components/Shell';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
 
 type StatusAluno = 'Ativo' | 'Inativo';
 type TipoMatricula = 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
@@ -42,6 +44,18 @@ export default function AlunosPage() {
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingProf, setLoadingProf] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof AlunoForm, string>>>({});
+  const cpfRef = useRef<HTMLInputElement | null>(null);
+  const nomeRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const senhaRef = useRef<HTMLInputElement | null>(null);
+
+  const auth = useAuth();
+  const router = useRouter();
 
   const [form, setForm] = useState<AlunoForm>({
     nome: '',
@@ -68,24 +82,54 @@ export default function AlunosPage() {
   }, [form, editing]);
 
   async function fetchAlunos(query?: string) {
+    setGlobalError(null);
     try {
       setLoading(true);
       const url = query?.trim()
         ? `/api/alunos?q=${encodeURIComponent(query)}`
         : '/api/alunos';
       const res = await fetch(url);
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const msg = data?.error ?? 'Erro ao carregar alunos';
+        setGlobalError(msg);
+        setList([]);
+        return;
+      }
+
       setList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setGlobalError('Falha de rede ao listar alunos');
+      setList([]);
     } finally {
       setLoading(false);
     }
   }
 
   async function fetchProfessores() {
+    setGlobalError(null);
     try {
       setLoadingProf(true);
       const res = await fetch('/api/professores');
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setGlobalError(data?.error ?? 'Erro ao carregar professores');
+        setProfessores([]);
+        return;
+      }
+
       const lista: Professor[] = Array.isArray(data) ? data : [];
       setProfessores(lista);
 
@@ -96,6 +140,9 @@ export default function AlunosPage() {
           id_professor: f.id_professor ?? lista[0].id_professor,
         }));
       }
+    } catch (e: any) {
+      setGlobalError('Falha de rede ao carregar professores');
+      setProfessores([]);
     } finally {
       setLoadingProf(false);
     }
@@ -109,6 +156,15 @@ export default function AlunosPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSave) return;
+    // Validação cliente antes de enviar
+    const isValid = validateForm();
+    if (!isValid) return;
+
+    // reset previous errors/messages
+    setGlobalError(null);
+    setSuccessMessage(null);
+    setFormErrors({});
+    setIsSubmitting(true);
 
     const payload = editing
       ? {
@@ -131,32 +187,155 @@ export default function AlunosPage() {
           tipo_matricula: form.tipo_matricula,
           id_professor: form.id_professor,          // pode ser null (API escolhe padrão)
         };
+    try {
+      const res = await fetch('/api/alunos', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const res = await fetch('/api/alunos', {
-      method: editing ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data?.error ?? 'Erro ao salvar aluno');
-      return;
+      if (!res.ok) {
+        const err = data?.error ?? 'Erro ao salvar aluno';
+
+        // Tratamento específico para duplicidade
+        if (res.status === 409) {
+          // API retorna mensagens como "CPF já cadastrado" ou "E-mail já cadastrado"
+          if (/cpf/i.test(err)) {
+            setFormErrors({ cpf: err });
+            // focus no campo CPF se possível
+            cpfRef.current?.focus();
+          } else if (/e-?mail/i.test(err)) {
+            setFormErrors({ email: err });
+          } else {
+            setGlobalError(err);
+          }
+          return;
+        }
+
+        if (res.status === 400) {
+          // Mensagem de validação geral do backend
+          setGlobalError(err);
+          return;
+        }
+
+        if (res.status === 401) {
+          // Sessão expirada/sem permissão: desloga e redireciona
+          auth.logout();
+          router.push('/login');
+          return;
+        }
+
+        // Outros erros (500 etc.)
+        setGlobalError(err);
+        return;
+      }
+
+      // Sucesso
+      setSuccessMessage(editing ? 'Aluno atualizado com sucesso' : 'Aluno criado com sucesso');
+
+      // Reseta o formulário
+      setEditing(null);
+      setForm({
+        nome: '',
+        cpf: '',
+        email: '',
+        senha: '',
+        status: 'Inativo',
+        tipo_matricula: 'Mensal',
+        id_professor: professores[0]?.id_professor ?? null,
+      });
+
+      fetchAlunos(q);
+    } catch (e: any) {
+      setGlobalError('Falha de rede ao salvar aluno');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function validateForm() {
+    const errors: Partial<Record<keyof AlunoForm, string>> = {};
+
+    const nome = form.nome?.trim() ?? '';
+    const cpf = form.cpf?.trim() ?? '';
+    const email = form.email?.trim() ?? '';
+    const senha = form.senha ?? '';
+
+    // Nome: não vazio e deve conter pelo menos uma letra (não pode ser apenas números)
+    if (!nome) {
+      errors.nome = 'Nome é obrigatório';
+    } else if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(nome)) {
+      errors.nome = 'Nome inválido: deve conter letras';
     }
 
-    // Reseta o formulário
-    setEditing(null);
-    setForm({
-      nome: '',
-      cpf: '',
-      email: '',
-      senha: '',
-      status: 'Inativo',
-      tipo_matricula: 'Mensal',
-      id_professor: professores[0]?.id_professor ?? null,
-    });
+    // CPF: somente dígitos, 11 caracteres (após remover pontos/traços)
+    const cpfDigits = cpf.replace(/\D/g, '');
+    if (!cpfDigits) {
+      errors.cpf = 'CPF é obrigatório';
+    } else if (!/^\d+$/.test(cpfDigits)) {
+      errors.cpf = 'CPF inválido: somente números';
+    } else if (cpfDigits.length !== 11) {
+      errors.cpf = 'CPF deve conter 11 dígitos';
+    }
 
-    fetchAlunos(q);
+    // Email: validação simples
+    if (!email) {
+      errors.email = 'E-mail é obrigatório';
+    } else if (!/^\S+@\S+\.\S+$/.test(email)) {
+      errors.email = 'E-mail inválido';
+    }
+
+    // Senha: mínimo 8 caracteres na criação; na edição, se preenchida deve ter >=8
+    if (!editing) {
+      if (!senha || senha.trim().length < 8) {
+        errors.senha = 'Senha deve ter no mínimo 8 caracteres';
+      }
+    } else {
+      if (senha && senha.trim().length > 0 && senha.trim().length < 8) {
+        errors.senha = 'Nova senha deve ter no mínimo 8 caracteres';
+      }
+    }
+
+    // Status e tipo_matricula: validar valores permitidos
+    if (!['Ativo', 'Inativo'].includes(form.status)) {
+      errors.status = 'Status inválido';
+    }
+    if (!['Mensal', 'Trimestral', 'Semestral', 'Anual'].includes(form.tipo_matricula)) {
+      errors.tipo_matricula = 'Tipo de matrícula inválido';
+    }
+
+    setFormErrors(errors);
+
+    // foco no primeiro campo com erro
+    if (errors.nome) {
+      nomeRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.cpf) {
+      cpfRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.email) {
+      emailRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.senha) {
+      senhaRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+
+    return Object.keys(errors).length === 0;
   }
 
   function handleEdit(a: Aluno) {
@@ -174,13 +353,29 @@ export default function AlunosPage() {
 
   async function handleDelete(id: number) {
     if (!confirm('Excluir este aluno?')) return;
-    const res = await fetch(`/api/alunos?id=${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data?.error ?? 'Erro ao excluir aluno');
-      return;
+    setGlobalError(null);
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/alunos?id=${id}`, { method: 'DELETE' });
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setGlobalError(data?.error ?? 'Erro ao excluir aluno');
+        return;
+      }
+
+      setSuccessMessage('Aluno excluído com sucesso');
+      fetchAlunos(q);
+    } catch (e: any) {
+      setGlobalError('Falha de rede ao excluir aluno');
+    } finally {
+      setDeletingId(null);
     }
-    fetchAlunos(q);
   }
 
   function cancelEdit() {
@@ -230,9 +425,14 @@ export default function AlunosPage() {
             onSubmit={handleSubmit}
             className="section space-y-4 lg:col-span-1"
           >
-            <h2 className="h2">
-              {editing ? 'Editar Aluno' : 'Novo Aluno'}
-            </h2>
+            <h2 className="h2">{editing ? 'Editar Aluno' : 'Novo Aluno'}</h2>
+
+            {globalError && (
+              <div className="text-sm text-red-600">{globalError}</div>
+            )}
+            {successMessage && (
+              <div className="text-sm text-green-600">{successMessage}</div>
+            )}
 
             <div>
               <label className="block text-sm font-medium">Nome</label>
@@ -241,7 +441,11 @@ export default function AlunosPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, nome: e.target.value }))
                 }
+                ref={nomeRef}
               />
+              {formErrors.nome && (
+                <div className="text-sm text-red-600 mt-1">{formErrors.nome}</div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -252,7 +456,11 @@ export default function AlunosPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, cpf: e.target.value }))
                   }
+                  ref={cpfRef}
                 />
+                {formErrors.cpf && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.cpf}</div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium">Email</label>
@@ -262,7 +470,11 @@ export default function AlunosPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, email: e.target.value }))
                   }
+                  ref={emailRef}
                 />
+                {formErrors.email && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.email}</div>
+                )}
               </div>
             </div>
 
@@ -275,7 +487,13 @@ export default function AlunosPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, senha: e.target.value }))
                   }
+                  disabled={isSubmitting}
+                  ref={senhaRef}
                 />
+                <div className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres.</div>
+                {formErrors.senha && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.senha}</div>
+                )}
               </div>
             )}
 
@@ -290,7 +508,12 @@ export default function AlunosPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, senha: e.target.value }))
                   }
+                  ref={senhaRef}
                 />
+                <div className="text-xs text-gray-500 mt-1">Opcional — mínimo 8 caracteres se preenchida.</div>
+                {formErrors.senha && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.senha}</div>
+                )}
               </div>
             )}
 
@@ -317,6 +540,7 @@ export default function AlunosPage() {
                       id_professor: value ? Number(value) : null,
                     }));
                   }}
+                  disabled={loadingProf || isSubmitting}
                 >
                   {professores.map((p) => (
                     <option key={p.id_professor} value={p.id_professor}>
@@ -339,6 +563,7 @@ export default function AlunosPage() {
                       status: e.target.value as StatusAluno,
                     }))
                   }
+                  disabled={isSubmitting}
                 >
                   <option value="Ativo">Ativo</option>
                   <option value="Inativo">Inativo</option>
@@ -357,6 +582,7 @@ export default function AlunosPage() {
                       tipo_matricula: e.target.value as TipoMatricula,
                     }))
                   }
+                  disabled={isSubmitting}
                 >
                   <option value="Mensal">Mensal</option>
                   <option value="Trimestral">Trimestral</option>
@@ -367,8 +593,8 @@ export default function AlunosPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={!canSave} className="flex-1">
-                {editing ? 'Salvar Alterações' : 'Salvar'}
+              <Button type="submit" disabled={!canSave || isSubmitting} className="flex-1">
+                {isSubmitting ? (editing ? 'Salvando...' : 'Salvando...') : editing ? 'Salvar Alterações' : 'Salvar'}
               </Button>
               {editing && (
                 <button

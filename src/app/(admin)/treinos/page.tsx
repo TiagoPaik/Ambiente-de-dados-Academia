@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Protected from '@/components/Protected';
 import Shell from '@/components/Shell';
 import Button from '@/components/ui/Button';
@@ -81,6 +81,10 @@ export default function TreinosPage() {
     nome: '',
     observacoes: '',
   });
+  const [novoTreinoError, setNovoTreinoError] = useState<string | null>(null);
+  const [editTreinoError, setEditTreinoError] = useState<string | null>(null);
+  const novoNomeRef = useRef<HTMLInputElement | null>(null);
+  const editNomeRef = useRef<HTMLInputElement | null>(null);
 
   // Passo 3 - exercícios
   const [exercicios, setExercicios] = useState<TreinoExercicio[]>([]);
@@ -98,6 +102,8 @@ export default function TreinosPage() {
     descanso_segundos: '',
     ordem: '',
   });
+  const [novoExercicioErrors, setNovoExercicioErrors] = useState<Partial<Record<keyof NovoExercicioForm, string>>>({});
+  const [exercicioFieldErrors, setExercicioFieldErrors] = useState<Record<number, Partial<Record<'series'|'repeticoes'|'carga_kg'|'descanso_segundos'|'ordem', string>>>>({});
 
   async function fetchAlunos(query?: string) {
     try {
@@ -198,21 +204,53 @@ export default function TreinosPage() {
     async function salvarExercicio(ex: TreinoExercicio) {
   if (!selectedTreino) return;
 
-  if (!Number.isInteger(ex.ordem as number) || (ex.ordem ?? 0) <= 0) {
-    alert('A ordem deve ser um inteiro positivo (1, 2, 3, ...).');
+  // validações por campo
+  const fieldErrors: Partial<Record<'series'|'repeticoes'|'carga_kg'|'descanso_segundos'|'ordem', string>> = {};
+
+  // series: inteiro positivo
+  if (ex.series == null || !Number.isInteger(Number(ex.series)) || Number(ex.series) <= 0) {
+    fieldErrors.series = 'Séries deve ser um número inteiro positivo';
+  }
+
+  // repeticoes: inteiro positivo
+  if (ex.repeticoes == null || !Number.isInteger(Number(ex.repeticoes)) || Number(ex.repeticoes) <= 0) {
+    fieldErrors.repeticoes = 'Repetições deve ser um número inteiro positivo';
+  }
+
+  // carga_kg: inteiro não negativo
+  if (ex.carga_kg == null || !Number.isInteger(Number(ex.carga_kg)) || Number(ex.carga_kg) < 0) {
+    fieldErrors.carga_kg = 'Carga deve ser um número inteiro não negativo';
+  }
+
+  // descanso_segundos: inteiro não negativo
+  if (ex.descanso_segundos == null || !Number.isInteger(Number(ex.descanso_segundos)) || Number(ex.descanso_segundos) < 0) {
+    fieldErrors.descanso_segundos = 'Descanso deve ser um número inteiro não negativo';
+  }
+
+  // ordem: inteiro positivo
+  if (ex.ordem == null || !Number.isInteger(Number(ex.ordem)) || Number(ex.ordem) <= 0) {
+    fieldErrors.ordem = 'Ordem deve ser um número inteiro positivo';
+  } else {
+    const ordemNum = Number(ex.ordem);
+    const outraMesmaOrdem = exercicios.some(
+      (e) => e.id_exercicio !== ex.id_exercicio && e.ordem === ordemNum
+    );
+    if (outraMesmaOrdem) {
+      fieldErrors.ordem = 'Já existe outro exercício com essa ordem neste treino';
+    }
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    setExercicioFieldErrors((prev) => ({ ...prev, [ex.id_exercicio]: fieldErrors }));
     return;
   }
 
-  const outraMesmaOrdem = exercicios.some(
-    (e) =>
-      e.id_exercicio !== ex.id_exercicio &&
-      e.ordem === ex.ordem
-  );
-
-  if (outraMesmaOrdem) {
-    alert('Já existe outro exercício com essa ordem neste treino.');
-    return;
-  }
+  // limpa erros antes de enviar
+  setExercicioFieldErrors((prev) => {
+    const copy = { ...prev };
+    delete copy[ex.id_exercicio];
+    return copy;
+  });
 
   setSavingId(ex.id_exercicio);
 
@@ -231,25 +269,23 @@ export default function TreinosPage() {
       }),
     });
 
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data?.error ?? 'Erro ao salvar exercício');
-        return;
-      }
-
-      if (data) {
-        setExercicios((prev) =>
-          prev.map((item) =>
-            item.id_exercicio === data.id_exercicio ? data : item
-          )
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Erro inesperado ao salvar exercício');
-    } finally {
-      setSavingId(null);
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data?.error ?? 'Erro ao salvar exercício');
+      return;
     }
+
+    if (data) {
+      setExercicios((prev) =>
+        prev.map((item) => (item.id_exercicio === data.id_exercicio ? data : item))
+      );
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Erro inesperado ao salvar exercício');
+  } finally {
+    setSavingId(null);
+  }
   }
 
   async function removerExercicio(ex: TreinoExercicio) {
@@ -276,12 +312,24 @@ export default function TreinosPage() {
   }
 
   async function criarNovoTreino() {
+    // reset previous error
+    setNovoTreinoError(null);
+
     if (!selectedAluno) {
       alert('Selecione um aluno primeiro');
       return;
     }
+
     if (!novoTreino.nome.trim()) {
-      alert('Informe o nome do treino');
+      setNovoTreinoError('Informe o nome do treino');
+      novoNomeRef.current?.focus();
+      return;
+    }
+
+    // Nome deve conter pelo menos uma letra
+    if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(novoTreino.nome)) {
+      setNovoTreinoError('Nome do treino inválido: deve conter ao menos uma letra');
+      novoNomeRef.current?.focus();
       return;
     }
 
@@ -304,6 +352,7 @@ export default function TreinosPage() {
 
       setTreinos((prev) => [data, ...prev]);
       setNovoTreino({ nome: '', observacoes: '' });
+      setNovoTreinoError(null);
     } catch (err) {
       console.error(err);
       alert('Erro inesperado ao criar treino');
@@ -312,8 +361,19 @@ export default function TreinosPage() {
 
   async function salvarTreinoAtual() {
     if (!selectedTreino) return;
+    // reset previous error
+    setEditTreinoError(null);
+
     if (!editTreino.nome.trim()) {
-      alert('Nome do treino não pode ficar vazio');
+      setEditTreinoError('Nome do treino não pode ficar vazio');
+      editNomeRef.current?.focus();
+      return;
+    }
+
+    // Nome deve conter pelo menos uma letra
+    if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(editTreino.nome)) {
+      setEditTreinoError('Nome do treino inválido: deve conter ao menos uma letra');
+      editNomeRef.current?.focus();
       return;
     }
 
@@ -374,47 +434,68 @@ export default function TreinosPage() {
   }
 
   async function adicionarExercicioAoTreino() {
+    // reset errors
+    setNovoExercicioErrors({});
+
     if (!selectedTreino) {
       alert('Selecione um treino');
       return;
     }
+
+    const errors: Partial<Record<keyof NovoExercicioForm, string>> = {};
+
     if (!novoExercicio.id_exercicio) {
-      alert('Selecione um exercício');
-      return;
+      errors.id_exercicio = 'Selecione um exercício';
     }
 
     const id_exercicio = Number(novoExercicio.id_exercicio);
-    const series = novoExercicio.series ? Number(novoExercicio.series) : null;
-    const repeticoes = novoExercicio.repeticoes ? Number(novoExercicio.repeticoes) : null;
-    const carga_kg = novoExercicio.carga_kg ? Number(novoExercicio.carga_kg) : null;
-    const descanso_segundos = novoExercicio.descanso_segundos ? Number(novoExercicio.descanso_segundos) : null;
-    const ordem = novoExercicio.ordem ? Number(novoExercicio.ordem) : NaN;
+    const series = novoExercicio.series !== '' ? Number(novoExercicio.series) : NaN;
+    const repeticoes = novoExercicio.repeticoes !== '' ? Number(novoExercicio.repeticoes) : NaN;
+    const carga_kg = novoExercicio.carga_kg !== '' ? Number(novoExercicio.carga_kg) : NaN;
+    const descanso_segundos = novoExercicio.descanso_segundos !== '' ? Number(novoExercicio.descanso_segundos) : NaN;
+    const ordem = novoExercicio.ordem !== '' ? Number(novoExercicio.ordem) : NaN;
 
-    if (!Number.isInteger(ordem) || ordem <= 0) {
-    alert('Informe uma ordem válida (1, 2, 3, ...).');
-    return;
+    if (!Number.isInteger(series) || series <= 0) {
+      errors.series = 'Séries deve ser um número inteiro positivo';
     }
 
-    if (ordensUsadas.has(ordem)) {
-    alert('Já existe um exercício com essa ordem neste treino.');
-    return;
+    if (!Number.isInteger(repeticoes) || repeticoes <= 0) {
+      errors.repeticoes = 'Repetições deve ser um número inteiro positivo';
+    }
+
+    if (!Number.isInteger(carga_kg) || carga_kg < 0) {
+      errors.carga_kg = 'Carga deve ser um número inteiro não negativo';
+    }
+
+    if (!Number.isInteger(descanso_segundos) || descanso_segundos < 0) {
+      errors.descanso_segundos = 'Descanso deve ser um número inteiro não negativo';
+    }
+
+    if (!Number.isInteger(ordem) || ordem <= 0) {
+      errors.ordem = 'Ordem deve ser um número inteiro positivo';
+    } else if (ordensUsadas.has(ordem)) {
+      errors.ordem = 'Já existe um exercício com essa ordem neste treino.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setNovoExercicioErrors(errors);
+      return;
     }
 
     try {
-    const res = await fetch('/api/treinos/exercicios', {
+      const res = await fetch('/api/treinos/exercicios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-        id_treino: selectedTreino.id_treino,
-        id_exercicio,
-        series,
-        repeticoes,
-        carga_kg,
-        descanso_segundos,
-        ordem,
+          id_treino: selectedTreino.id_treino,
+          id_exercicio,
+          series,
+          repeticoes,
+          carga_kg,
+          descanso_segundos,
+          ordem,
         }),
-    });
-
+      });
 
       const data = await res.json();
       if (!res.ok) {
@@ -423,14 +504,8 @@ export default function TreinosPage() {
       }
 
       setExercicios((prev) => [...prev, data]);
-      setNovoExercicio({
-        id_exercicio: '',
-        series: '',
-        repeticoes: '',
-        carga_kg: '',
-        descanso_segundos: '',
-        ordem: '',
-      });
+      setNovoExercicio({ id_exercicio: '', series: '', repeticoes: '', carga_kg: '', descanso_segundos: '', ordem: '' });
+      setNovoExercicioErrors({});
     } catch (err) {
       console.error(err);
       alert('Erro inesperado ao adicionar exercício');
@@ -600,7 +675,11 @@ export default function TreinosPage() {
                         setNovoTreino((f) => ({ ...f, nome: e.target.value }))
                       }
                       placeholder="Ex.: Treino A, Treino B..."
+                      ref={novoNomeRef}
                     />
+                    {novoTreinoError && (
+                      <div className="text-sm text-red-600 mt-1">{novoTreinoError}</div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">Observações (opcional)</label>
@@ -682,7 +761,11 @@ export default function TreinosPage() {
                             nome: e.target.value,
                           }))
                         }
+                        ref={editNomeRef}
                       />
+                      {editTreinoError && (
+                        <div className="text-sm text-red-600 mt-1">{editTreinoError}</div>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium mb-1">
@@ -781,80 +864,85 @@ export default function TreinosPage() {
                             </label>
                             <Input
                               type="number"
-                              value={ex.series ?? ''}
-                              onChange={(e) =>
-                                updateExercicioLocal(ex.id_exercicio, {
-                                  series: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                                })
-                              }
+                                value={ex.series ?? ''}
+                                onChange={(e) =>
+                                  updateExercicioLocal(ex.id_exercicio, {
+                                    series: e.target.value ? Number(e.target.value) : null,
+                                  })
+                                }
                             />
+                              {exercicioFieldErrors[ex.id_exercicio]?.series && (
+                                <div className="text-xs text-red-600 mt-1">{exercicioFieldErrors[ex.id_exercicio]?.series}</div>
+                              )}
                           </div>
                           <div>
                             <label className="block text-[11px] text-gray-500">
                               Repetições
                             </label>
                             <Input
-                              type="number"
-                              value={ex.repeticoes ?? ''}
-                              onChange={(e) =>
-                                updateExercicioLocal(ex.id_exercicio, {
-                                  repeticoes: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                                })
-                              }
+                                type="number"
+                                value={ex.repeticoes ?? ''}
+                                onChange={(e) =>
+                                  updateExercicioLocal(ex.id_exercicio, {
+                                    repeticoes: e.target.value ? Number(e.target.value) : null,
+                                  })
+                                }
                             />
+                              {exercicioFieldErrors[ex.id_exercicio]?.repeticoes && (
+                                <div className="text-xs text-red-600 mt-1">{exercicioFieldErrors[ex.id_exercicio]?.repeticoes}</div>
+                              )}
                           </div>
                           <div>
                             <label className="block text-[11px] text-gray-500">
                               Carga (kg)
                             </label>
                             <Input
-                              type="number"
-                              value={ex.carga_kg ?? ''}
-                              onChange={(e) =>
-                                updateExercicioLocal(ex.id_exercicio, {
-                                  carga_kg: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                                })
-                              }
+                                type="number"
+                                value={ex.carga_kg ?? ''}
+                                onChange={(e) =>
+                                  updateExercicioLocal(ex.id_exercicio, {
+                                    carga_kg: e.target.value ? Number(e.target.value) : null,
+                                  })
+                                }
                             />
+                              {exercicioFieldErrors[ex.id_exercicio]?.carga_kg && (
+                                <div className="text-xs text-red-600 mt-1">{exercicioFieldErrors[ex.id_exercicio]?.carga_kg}</div>
+                              )}
                           </div>
                           <div>
                             <label className="block text-[11px] text-gray-500">
                               Descanso (s)
                             </label>
                             <Input
-                              type="number"
-                              value={ex.descanso_segundos ?? ''}
-                              onChange={(e) =>
-                                updateExercicioLocal(ex.id_exercicio, {
-                                  descanso_segundos: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                                })
-                              }
+                                type="number"
+                                value={ex.descanso_segundos ?? ''}
+                                onChange={(e) =>
+                                  updateExercicioLocal(ex.id_exercicio, {
+                                    descanso_segundos: e.target.value ? Number(e.target.value) : null,
+                                  })
+                                }
                             />
+                              {exercicioFieldErrors[ex.id_exercicio]?.descanso_segundos && (
+                                <div className="text-xs text-red-600 mt-1">{exercicioFieldErrors[ex.id_exercicio]?.descanso_segundos}</div>
+                              )}
                           </div>
                           <div>
                             <label className="block text-[11px] text-gray-500">
                               Ordem
                             </label>
                             <Input
-                              type="number"
-                              min={1} 
-                              value={ex.ordem ?? ''}
-                              onChange={(e) =>
-                                updateExercicioLocal(ex.id_exercicio, {
-                                  ordem: e.target.value
-                                    ? Number(e.target.value)
-                                    : null,
-                                })
-                              }
+                                type="number"
+                                min={1}
+                                value={ex.ordem ?? ''}
+                                onChange={(e) =>
+                                  updateExercicioLocal(ex.id_exercicio, {
+                                    ordem: e.target.value ? Number(e.target.value) : null,
+                                  })
+                                }
                             />
+                              {exercicioFieldErrors[ex.id_exercicio]?.ordem && (
+                                <div className="text-xs text-red-600 mt-1">{exercicioFieldErrors[ex.id_exercicio]?.ordem}</div>
+                              )}
                           </div>
                         </div>
                         <div className="flex justify-end">
@@ -919,6 +1007,9 @@ export default function TreinosPage() {
                             </option>
                           ))}
                         </select>
+                        {novoExercicioErrors.id_exercicio && (
+                          <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.id_exercicio}</div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -936,6 +1027,9 @@ export default function TreinosPage() {
                               }))
                             }
                           />
+                            {novoExercicioErrors.series && (
+                              <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.series}</div>
+                            )}
                         </div>
                         <div>
                           <label className="block text-[11px] text-gray-500">
@@ -951,6 +1045,9 @@ export default function TreinosPage() {
                               }))
                             }
                           />
+                            {novoExercicioErrors.repeticoes && (
+                              <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.repeticoes}</div>
+                            )}
                         </div>
                       </div>
 
@@ -969,6 +1066,9 @@ export default function TreinosPage() {
                               }))
                             }
                           />
+                            {novoExercicioErrors.carga_kg && (
+                              <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.carga_kg}</div>
+                            )}
                         </div>
                         <div>
                           <label className="block text-[11px] text-gray-500">
@@ -984,6 +1084,9 @@ export default function TreinosPage() {
                               }))
                             }
                           />
+                            {novoExercicioErrors.descanso_segundos && (
+                              <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.descanso_segundos}</div>
+                            )}
                         </div>
                       </div>
 
@@ -1002,6 +1105,9 @@ export default function TreinosPage() {
                             }))
                           }
                         />
+                        {novoExercicioErrors.ordem && (
+                          <div className="text-xs text-red-600 mt-1">{novoExercicioErrors.ordem}</div>
+                        )}
                       </div>
                     </div>
 

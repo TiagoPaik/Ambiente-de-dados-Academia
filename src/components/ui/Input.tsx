@@ -1,10 +1,14 @@
 'use client';
-import { InputHTMLAttributes } from 'react';
+import React, { forwardRef, InputHTMLAttributes } from 'react';
 
-export default function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
+  props,
+  ref
+) {
   const { className = '', ...rest } = props;
   return (
     <input
+      ref={ref}
       {...rest}
       className={
         "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-[15px] " +
@@ -13,4 +17,8 @@ export default function Input(props: InputHTMLAttributes<HTMLInputElement>) {
       }
     />
   );
-}
+});
+
+Input.displayName = 'Input';
+
+export default Input;

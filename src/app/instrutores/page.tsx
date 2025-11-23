@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Protected from '@/components/Protected';
 import Shell from '@/components/Shell';
 import Button from '@/components/ui/Button';
@@ -19,6 +19,14 @@ export default function InstrutoresPage() {
   const [list, setList] = useState<Professor[]>([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof Professor, string>>>({});
+  const nomeRef = useRef<HTMLInputElement | null>(null);
+  const cpfRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const senhaRef = useRef<HTMLInputElement | null>(null);
 
   const [form, setForm] = useState<Partial<Professor>>({
     nome: '',
@@ -71,10 +79,15 @@ export default function InstrutoresPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!canSave) return;
+    // validação cliente
+    setGlobalError(null);
+    setSuccessMessage(null);
+    setFormErrors({});
+
+    if (!validateForm()) return;
 
     // monta payload
     let payload: any;
-
     if (editing) {
       // edição: senha opcional
       payload = {
@@ -85,8 +98,8 @@ export default function InstrutoresPage() {
         status: form.status,
       };
 
-      if (form.senha && form.senha.trim()) {
-        payload.senha = form.senha.trim();
+      if (form.senha && String(form.senha).trim()) {
+        payload.senha = String(form.senha).trim();
       }
     } else {
       // criação: senha obrigatória
@@ -99,21 +112,114 @@ export default function InstrutoresPage() {
       };
     }
 
-    const res = await fetch('/api/professores', {
-      method: editing ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/professores', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data?.error ?? 'Erro ao salvar');
-      return;
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const err = data?.error ?? 'Erro ao salvar';
+        if (res.status === 409) {
+          // mapear para campos
+          if (/cpf/i.test(err)) {
+            setFormErrors({ cpf: err });
+            cpfRef.current?.focus();
+          } else if (/e-?mail/i.test(err)) {
+            setFormErrors({ email: err });
+            emailRef.current?.focus();
+          } else {
+            setGlobalError(err);
+          }
+          return;
+        }
+
+        setGlobalError(err);
+        return;
+      }
+
+      setSuccessMessage(editing ? 'Instrutor atualizado com sucesso' : 'Instrutor criado com sucesso');
+      setForm({ nome: '', cpf: '', email: '', senha: '', status: 'Ativo' });
+      setEditing(null);
+      fetchProfs(q);
+    } catch (e: any) {
+      setGlobalError('Falha de rede ao salvar instrutor');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function validateForm() {
+    const errors: Partial<Record<keyof Professor, string>> = {};
+    const nome = String(form.nome ?? '').trim();
+    const cpf = String(form.cpf ?? '').trim();
+    const email = String(form.email ?? '').trim();
+    const senha = String(form.senha ?? '');
+
+    if (!nome) {
+      errors.nome = 'Nome é obrigatório';
+    } else if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(nome)) {
+      errors.nome = 'Nome inválido: deve conter letras';
     }
 
-    setForm({ nome: '', cpf: '', email: '', senha: '', status: 'Ativo' });
-    setEditing(null);
-    fetchProfs(q);
+    const cpfDigits = cpf.replace(/\D/g, '');
+    if (!cpfDigits) {
+      errors.cpf = 'CPF é obrigatório';
+    } else if (!/^\d+$/.test(cpfDigits)) {
+      errors.cpf = 'CPF inválido: somente números';
+    } else if (cpfDigits.length !== 11) {
+      errors.cpf = 'CPF deve conter 11 dígitos';
+    }
+
+    if (!email) {
+      errors.email = 'E-mail é obrigatório';
+    } else if (!/^\S+@\S+\.\S+$/.test(email)) {
+      errors.email = 'E-mail inválido';
+    }
+
+    if (!editing) {
+      if (!senha || senha.trim().length < 8) {
+        errors.senha = 'Senha deve ter no mínimo 8 caracteres';
+      }
+    } else {
+      if (senha && senha.trim().length > 0 && senha.trim().length < 8) {
+        errors.senha = 'Nova senha deve ter no mínimo 8 caracteres';
+      }
+    }
+
+    setFormErrors(errors);
+
+    if (errors.nome) {
+      nomeRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.cpf) {
+      cpfRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.email) {
+      emailRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+    if (errors.senha) {
+      senhaRef.current?.focus();
+      setGlobalError('Corrija os erros do formulário');
+      return false;
+    }
+
+    return Object.keys(errors).length === 0;
   }
 
   async function handleEdit(p: Professor) {
@@ -188,7 +294,11 @@ export default function InstrutoresPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, nome: e.target.value }))
                 }
+                ref={nomeRef}
               />
+              {formErrors.nome && (
+                <div className="text-sm text-red-600 mt-1">{formErrors.nome}</div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -199,7 +309,11 @@ export default function InstrutoresPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, cpf: e.target.value }))
                   }
+                  ref={cpfRef}
                 />
+                {formErrors.cpf && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.cpf}</div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium">Email</label>
@@ -209,7 +323,11 @@ export default function InstrutoresPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, email: e.target.value }))
                   }
+                  ref={emailRef}
                 />
+                {formErrors.email && (
+                  <div className="text-sm text-red-600 mt-1">{formErrors.email}</div>
+                )}
               </div>
             </div>
 
@@ -228,7 +346,16 @@ export default function InstrutoresPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, senha: e.target.value }))
                 }
+                ref={senhaRef}
               />
+              <div className="text-xs text-gray-500 mt-1">
+                {editing
+                  ? 'Opcional — mínimo 8 caracteres se preenchida.'
+                  : 'Mínimo 8 caracteres.'}
+              </div>
+              {formErrors.senha && (
+                <div className="text-sm text-red-600 mt-1">{formErrors.senha}</div>
+              )}
             </div>
 
             <div>

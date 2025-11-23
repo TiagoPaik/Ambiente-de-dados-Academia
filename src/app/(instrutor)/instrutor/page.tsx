@@ -106,7 +106,7 @@ export default function InstrutorDashboard() {
             <Button
               type="button"
               onClick={fetchMeusAlunos}
-              className="px-3 py-1.5 text-sm border border-gray-300 bg-white hover:bg-gray-50"
+              className="text-sm"
             >
               Atualizar
             </Button>
